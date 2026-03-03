@@ -12,6 +12,7 @@ class JackpotPool(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True,
+        default=uuid.uuid4,
         server_default=text("gen_random_uuid()"),
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -32,6 +33,7 @@ class JackpotTrigger(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True,
+        default=uuid.uuid4,
         server_default=text("gen_random_uuid()"),
     )
     pool_id: Mapped[uuid.UUID] = mapped_column(

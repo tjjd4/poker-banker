@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "dev-secret-key-change-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    ADMIN_DEFAULT_PASSWORD: str = "admin123"
 
     model_config = SettingsConfigDict(env_file=".env")
 

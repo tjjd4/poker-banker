@@ -14,6 +14,7 @@ class InsuranceEvent(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True,
+        default=uuid.uuid4,
         server_default=text("gen_random_uuid()"),
     )
     table_id: Mapped[uuid.UUID] = mapped_column(

@@ -13,6 +13,7 @@ class Table(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True,
+        default=uuid.uuid4,
         server_default=text("gen_random_uuid()"),
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -49,6 +50,7 @@ class PlayerSeat(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True,
+        default=uuid.uuid4,
         server_default=text("gen_random_uuid()"),
     )
     table_id: Mapped[uuid.UUID] = mapped_column(

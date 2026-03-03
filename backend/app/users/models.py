@@ -12,6 +12,7 @@ class User(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True,
+        default=uuid.uuid4,
         server_default=text("gen_random_uuid()"),
     )
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
