@@ -9,6 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.database import Base, get_session
 from app.main import app
 
+# Import all models so Base.metadata.create_all can resolve FK references
+from app.tables.models import Table, PlayerSeat  # noqa: F401
+from app.transactions.models import Transaction  # noqa: F401
+from app.insurance.models import InsuranceEvent  # noqa: F401
+from app.jackpot.models import JackpotPool, JackpotTrigger  # noqa: F401
+
 # Use SQLite async for tests (no PostgreSQL dependency)
 TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
 
@@ -132,3 +138,100 @@ def admin_headers(admin_token: str) -> dict:
 @pytest.fixture
 def banker_headers(banker_token: str) -> dict:
     return {"Authorization": f"Bearer {banker_token}"}
+
+
+# ---------------------------------------------------------------------------
+# Player fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def player_token(async_client: AsyncClient, admin_token: str) -> str:
+    """用 admin 建立 player user 並登入，回傳 access_token。"""
+    await async_client.post(
+        "/api/users",
+        json={
+            "username": "player1",
+            "password": "player123",
+            "display_name": "Player One",
+            "role": "player",
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    resp = await async_client.post(
+        "/api/auth/login",
+        json={"username": "player1", "password": "player123"},
+    )
+    return resp.json()["access_token"]
+
+
+@pytest.fixture
+def player_headers(player_token: str) -> dict:
+    return {"Authorization": f"Bearer {player_token}"}
+
+
+# ---------------------------------------------------------------------------
+# Second banker fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def banker_b_token(async_client: AsyncClient, admin_token: str) -> str:
+    """用 admin 建立第二個 banker 並登入，回傳 access_token。"""
+    await async_client.post(
+        "/api/users",
+        json={
+            "username": "banker2",
+            "password": "banker456",
+            "display_name": "Banker Two",
+            "role": "banker",
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    resp = await async_client.post(
+        "/api/auth/login",
+        json={"username": "banker2", "password": "banker456"},
+    )
+    return resp.json()["access_token"]
+
+
+@pytest.fixture
+def banker_b_headers(banker_b_token: str) -> dict:
+    return {"Authorization": f"Bearer {banker_b_token}"}
+
+
+# ---------------------------------------------------------------------------
+# Table fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def created_table(async_client: AsyncClient, banker_headers: dict) -> dict:
+    """建立一個 CREATED 狀態的桌檯，回傳 response dict。"""
+    resp = await async_client.post(
+        "/api/tables",
+        json={
+            "name": "Test Table",
+            "blind_level": "1/2",
+            "rake_interval_minutes": 30,
+            "rake_amount": 500,
+            "jackpot_per_hand": 0,
+        },
+        headers=banker_headers,
+    )
+    assert resp.status_code == 201
+    return resp.json()
+
+
+@pytest_asyncio.fixture
+async def open_table(
+    async_client: AsyncClient, banker_headers: dict, created_table: dict
+) -> dict:
+    """建立一個 OPEN 狀態的桌檯。"""
+    resp = await async_client.patch(
+        f"/api/tables/{created_table['id']}/status",
+        json={"status": "OPEN"},
+        headers=banker_headers,
+    )
+    assert resp.status_code == 200
+    return resp.json()
