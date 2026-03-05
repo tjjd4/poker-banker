@@ -16,7 +16,8 @@ from app.insurance.models import InsuranceEvent  # noqa: F401
 from app.jackpot.models import JackpotPool, JackpotTrigger  # noqa: F401
 
 # Use SQLite async for tests (no PostgreSQL dependency)
-TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
+# Use /tmp on Linux native fs to avoid WSL NTFS disk I/O errors
+TEST_DATABASE_URL = "sqlite+aiosqlite:////tmp/poker_banker_test.db"
 
 engine_test = create_async_engine(TEST_DATABASE_URL, echo=False)
 async_session_test = async_sessionmaker(engine_test, class_=AsyncSession, expire_on_commit=False)
@@ -201,6 +202,28 @@ def banker_b_headers(banker_b_token: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Player user fixture (direct DB creation, no API)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def player_user(session: AsyncSession) -> User:
+    """直接在 DB 建立 player user，供 buy-in/cash-out 測試使用。"""
+    user = User(
+        id=_uuid.uuid4(),
+        username="testplayer",
+        password_hash=hash_password("testplayer123"),
+        display_name="Test Player",
+        role="player",
+        is_active=True,
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+# ---------------------------------------------------------------------------
 # Table fixtures
 # ---------------------------------------------------------------------------
 
@@ -235,3 +258,71 @@ async def open_table(
     )
     assert resp.status_code == 200
     return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Insurance fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def player_user_b(session: AsyncSession) -> User:
+    """直接在 DB 建立第二個 player user，供保險測試使用。"""
+    user = User(
+        id=_uuid.uuid4(),
+        username="testplayer_b",
+        password_hash=hash_password("testplayerb123"),
+        display_name="Test Player B",
+        role="player",
+        is_active=True,
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
+async def two_seated_players(
+    async_client: AsyncClient,
+    banker_headers: dict,
+    open_table: dict,
+    player_user: User,
+    player_user_b: User,
+) -> dict:
+    """在 open_table 中建立兩個在座玩家（各 Buy-in 5000）。"""
+    await async_client.post(
+        f"/api/tables/{open_table['id']}/buy-in",
+        json={"player_id": str(player_user.id), "amount": 5000},
+        headers=banker_headers,
+    )
+    await async_client.post(
+        f"/api/tables/{open_table['id']}/buy-in",
+        json={"player_id": str(player_user_b.id), "amount": 5000},
+        headers=banker_headers,
+    )
+    return {
+        "table": open_table,
+        "buyer": player_user,
+        "opponent": player_user_b,
+    }
+
+
+@pytest.fixture
+def sample_flop_cards() -> dict:
+    """一組合法的 Flop 階段牌面。"""
+    return {
+        "buyer_hand": ["As", "Ks"],
+        "opponent_hand": ["7h", "6h"],
+        "community_cards": ["8h", "5h", "2d"],
+    }
+
+
+@pytest.fixture
+def sample_turn_cards() -> dict:
+    """一組合法的 Turn 階段牌面。"""
+    return {
+        "buyer_hand": ["As", "Ks"],
+        "opponent_hand": ["7h", "6h"],
+        "community_cards": ["8h", "5h", "2d", "Jc"],
+    }

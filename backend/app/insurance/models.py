@@ -2,8 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, func, text
-from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
