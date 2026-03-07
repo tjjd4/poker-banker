@@ -175,6 +175,22 @@ async def test_buy_in_nonexistent_player(
     assert resp.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_buy_in_inactive_player_rejected(
+    async_client: AsyncClient,
+    banker_headers: dict,
+    open_table: dict,
+    inactive_user: User,
+):
+    resp = await async_client.post(
+        f"/api/tables/{open_table['id']}/buy-in",
+        json={"player_id": str(inactive_user.id), "amount": 1000},
+        headers=banker_headers,
+    )
+    assert resp.status_code == 404
+    assert "player not found" in resp.json()["detail"].lower()
+
+
 # ---------------------------------------------------------------------------
 # Cash-out tests (7)
 # ---------------------------------------------------------------------------
@@ -682,6 +698,38 @@ async def test_balance_after_accuracy(
     # balance_after for RAKE = 700 - rake_amount
     rake_amount = data["rake_amount"]
     assert rake_txn["balance_after"] == 700 - rake_amount
+
+
+@pytest.mark.asyncio
+async def test_concurrent_buy_ins(
+    async_client: AsyncClient,
+    banker_headers: dict,
+    open_table: dict,
+    player_user: User,
+):
+    for _ in range(5):
+        resp = await async_client.post(
+            f"/api/tables/{open_table['id']}/buy-in",
+            json={"player_id": str(player_user.id), "amount": 1000},
+            headers=banker_headers,
+        )
+        assert resp.status_code == 201
+
+    resp_final = await async_client.get(
+        f"/api/tables/{open_table['id']}/players",
+        headers=banker_headers,
+    )
+    players = resp_final.json()["players"]
+    player_data = [p for p in players if p["player_id"] == str(player_user.id)][0]
+    assert player_data["current_balance"] == 5000
+
+    resp_txns = await async_client.get(
+        f"/api/tables/{open_table['id']}/transactions?player_id={player_user.id}",
+        headers=banker_headers,
+    )
+    txns = resp_txns.json()["transactions"]
+    balances = sorted([t["balance_after"] for t in txns])
+    assert balances == [1000, 2000, 3000, 4000, 5000]
 
 
 # ---------------------------------------------------------------------------

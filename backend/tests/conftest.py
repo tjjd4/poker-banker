@@ -326,3 +326,67 @@ def sample_turn_cards() -> dict:
         "opponent_hand": ["7h", "6h"],
         "community_cards": ["8h", "5h", "2d", "Jc"],
     }
+
+
+# ---------------------------------------------------------------------------
+# Jackpot fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def player_user_c(session: AsyncSession) -> User:
+    """直接在 DB 建立第三個 player user，供 Jackpot 測試使用。"""
+    user = User(
+        id=_uuid.uuid4(),
+        username="testplayer_c",
+        password_hash=hash_password("testplayerc123"),
+        display_name="Test Player C",
+        role="player",
+        is_active=True,
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
+async def jackpot_pool(async_client: AsyncClient, banker_headers: dict) -> dict:
+    """建立一個 Jackpot 池，回傳 response dict。"""
+    resp = await async_client.post(
+        "/api/jackpot-pools",
+        json={"name": "Test Pool"},
+        headers=banker_headers,
+    )
+    assert resp.status_code == 201
+    return resp.json()
+
+
+@pytest_asyncio.fixture
+async def open_table_with_jackpot(
+    async_client: AsyncClient,
+    banker_headers: dict,
+    jackpot_pool: dict,
+) -> dict:
+    """建立一個啟用 Jackpot 的 OPEN 桌檯。"""
+    resp = await async_client.post(
+        "/api/tables",
+        json={
+            "name": "Jackpot Table",
+            "blind_level": "1/2",
+            "rake_interval_minutes": 30,
+            "rake_amount": 500,
+            "jackpot_per_hand": 60,
+            "jackpot_pool_id": jackpot_pool["id"],
+        },
+        headers=banker_headers,
+    )
+    assert resp.status_code == 201
+    table = resp.json()
+    resp2 = await async_client.patch(
+        f"/api/tables/{table['id']}/status",
+        json={"status": "OPEN"},
+        headers=banker_headers,
+    )
+    assert resp2.status_code == 200
+    return {**resp2.json(), "pool_id": jackpot_pool["id"]}

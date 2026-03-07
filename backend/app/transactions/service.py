@@ -11,6 +11,18 @@ from app.transactions.rake import calculate_rake
 from app.users.models import User
 
 
+async def _lock_table(db: AsyncSession, table_id: uuid.UUID) -> Table | None:
+    """Load a table row with FOR UPDATE lock (PostgreSQL) to serialize operations.
+
+    SQLite does not support FOR UPDATE, so the lock clause is skipped.
+    """
+    stmt = select(Table).where(Table.id == table_id)
+    if db.bind.dialect.name != "sqlite":
+        stmt = stmt.with_for_update()
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
 async def buy_in(
     db: AsyncSession,
     table_id: uuid.UUID,
@@ -18,8 +30,8 @@ async def buy_in(
     amount: int,
     created_by: uuid.UUID,
 ) -> dict:
-    # 1. Table must be OPEN
-    table = await db.get(Table, table_id)
+    # 1. Table must be OPEN (FOR UPDATE lock serializes concurrent requests)
+    table = await _lock_table(db, table_id)
     if table is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Table not found"
@@ -113,8 +125,8 @@ async def cash_out(
     if now is None:
         now = datetime.now(timezone.utc)
 
-    # 1. Table must be OPEN or SETTLING
-    table = await db.get(Table, table_id)
+    # 1. Table must be OPEN or SETTLING (FOR UPDATE lock serializes concurrent requests)
+    table = await _lock_table(db, table_id)
     if table is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Table not found"

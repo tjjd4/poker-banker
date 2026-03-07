@@ -5,6 +5,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.jackpot.models import JackpotPool
 from app.tables.models import PlayerSeat, Table
 from app.tables.schemas import TableCreate, TableStatusUpdate
 from app.users.models import User
@@ -38,6 +39,20 @@ ERROR_MESSAGES: dict[tuple[str, str], str] = {
 async def create_table(
     db: AsyncSession, banker_id: uuid.UUID, data: TableCreate
 ) -> Table:
+    # Jackpot pool validation
+    if data.jackpot_per_hand > 0 and data.jackpot_pool_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Must specify a jackpot pool when jackpot_per_hand > 0",
+        )
+    if data.jackpot_pool_id is not None:
+        pool = await db.get(JackpotPool, data.jackpot_pool_id)
+        if pool is None or pool.banker_id != banker_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Jackpot pool not found or not owned by you",
+            )
+
     table = Table(
         id=uuid.uuid4(),
         name=data.name,

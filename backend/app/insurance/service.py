@@ -14,6 +14,7 @@ from app.insurance.schemas import (
 )
 from app.tables.models import PlayerSeat, Table
 from app.transactions.models import Transaction
+from app.transactions.service import _lock_table
 
 
 async def _check_player_seated(
@@ -53,8 +54,8 @@ async def create_insurance_event(
     data: InsuranceCreateRequest,
     created_by: uuid.UUID,
 ) -> dict:
-    # 1. Table must be OPEN
-    table = await db.get(Table, table_id)
+    # 1. Table must be OPEN (FOR UPDATE lock serializes concurrent requests)
+    table = await _lock_table(db, table_id)
     if table is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Table not found"

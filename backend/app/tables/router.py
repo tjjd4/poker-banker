@@ -193,3 +193,11 @@ async def get_table_transactions(
 from app.insurance.router import router as insurance_router
 
 router.include_router(insurance_router, prefix="/{table_id}/insurance", tags=["insurance"])
+
+# ---------------------------------------------------------------------------
+# Jackpot sub-router
+# ---------------------------------------------------------------------------
+
+from app.jackpot.router import table_jackpot_router
+
+router.include_router(table_jackpot_router, prefix="/{table_id}/jackpot", tags=["jackpot"])
