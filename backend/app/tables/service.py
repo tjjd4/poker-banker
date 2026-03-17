@@ -1,10 +1,10 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import ForbiddenError, NotFoundError, ValidationError
 from app.jackpot.models import JackpotPool
 from app.tables.models import PlayerSeat, Table
 from app.tables.schemas import TableCreate, TableStatusUpdate
@@ -41,17 +41,11 @@ async def create_table(
 ) -> Table:
     # Jackpot pool validation
     if data.jackpot_per_hand > 0 and data.jackpot_pool_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Must specify a jackpot pool when jackpot_per_hand > 0",
-        )
+        raise ValidationError("Must specify a jackpot pool when jackpot_per_hand > 0")
     if data.jackpot_pool_id is not None:
         pool = await db.get(JackpotPool, data.jackpot_pool_id)
         if pool is None or pool.banker_id != banker_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Jackpot pool not found or not owned by you",
-            )
+            raise ValidationError("Jackpot pool not found or not owned by you")
 
     table = Table(
         id=uuid.uuid4(),
@@ -141,25 +135,17 @@ async def update_table_status(
 ) -> Table:
     table = await db.get(Table, table_id)
     if table is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Table not found"
-        )
+        raise NotFoundError("Table not found")
 
     # Ownership check (skip for admin, i.e. banker_id=None)
     if banker_id is not None and table.banker_id != banker_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't own this table",
-        )
+        raise ForbiddenError("You don't own this table")
 
     current = table.status
 
     # Same status
     if current == new_status:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Table is already in {new_status} status",
-        )
+        raise ValidationError(f"Table is already in {new_status} status")
 
     # Invalid transition
     if (current, new_status) not in VALID_TRANSITIONS:
@@ -167,7 +153,7 @@ async def update_table_status(
             (current, new_status),
             f"Invalid status transition from {current} to {new_status}",
         )
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+        raise ValidationError(msg)
 
     # Precondition: SETTLING → CLOSED requires all players to have left
     if current == "SETTLING" and new_status == "CLOSED":
@@ -178,10 +164,7 @@ async def update_table_status(
         )
         active_count = result.scalar()
         if active_count > 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot close table: there are still active players seated",
-            )
+            raise ValidationError("Cannot close table: there are still active players seated")
 
     # Side effects
     if new_status == "OPEN":
@@ -203,14 +186,11 @@ async def unlock_table(
 ) -> Table:
     table = await db.get(Table, table_id)
     if table is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Table not found"
-        )
+        raise NotFoundError("Table not found")
 
     if table.status != "CLOSED":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Can only unlock a CLOSED table, current status is {table.status}",
+        raise ValidationError(
+            f"Can only unlock a CLOSED table, current status is {table.status}"
         )
 
     table.status = "SETTLING"

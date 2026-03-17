@@ -1,10 +1,10 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import NotFoundError, ValidationError
 from app.insurance.calculator import calculate_outs_and_odds, validate_card_set
 from app.insurance.models import InsuranceEvent
 from app.insurance.schemas import (
@@ -20,7 +20,7 @@ from app.transactions.service import _lock_table
 async def _check_player_seated(
     db: AsyncSession, table_id: uuid.UUID, player_id: uuid.UUID, label: str
 ) -> None:
-    """Raise 400 if player is not actively seated at the table."""
+    """Raise ValidationError if player is not actively seated at the table."""
     result = await db.execute(
         select(PlayerSeat).where(
             PlayerSeat.table_id == table_id,
@@ -29,10 +29,7 @@ async def _check_player_seated(
         )
     )
     if result.scalar_one_or_none() is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"{label} is not seated at this table",
-        )
+        raise ValidationError(f"{label} is not seated at this table")
 
 
 async def _get_balance_after(
@@ -57,14 +54,9 @@ async def create_insurance_event(
     # 1. Table must be OPEN (FOR UPDATE lock serializes concurrent requests)
     table = await _lock_table(db, table_id)
     if table is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Table not found"
-        )
+        raise NotFoundError("Table not found")
     if table.status != "OPEN":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Table is not open",
-        )
+        raise ValidationError("Table is not open")
 
     # 2. Buyer must be seated
     await _check_player_seated(db, table_id, data.buyer_id, "Buyer")
@@ -75,10 +67,7 @@ async def create_insurance_event(
     # 4. Validate cards
     errors = validate_card_set(data.buyer_hand, data.opponent_hand, data.community_cards)
     if errors:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="; ".join(errors),
-        )
+        raise ValidationError("; ".join(errors))
 
     # 5. Calculate outs and odds
     calc = calculate_outs_and_odds(
@@ -127,17 +116,11 @@ async def confirm_insurance(
     # 1. Get event
     event = await db.get(InsuranceEvent, insurance_id)
     if event is None or event.table_id != table_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Insurance event not found",
-        )
+        raise NotFoundError("Insurance event not found")
 
     # 2. Check not already confirmed
     if event.insured_amount != 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Insurance already confirmed",
-        )
+        raise ValidationError("Insurance already confirmed")
 
     # 3. Update event
     event.insured_amount = data.insured_amount
@@ -174,32 +157,22 @@ async def resolve_insurance(
     # 1. Get event
     event = await db.get(InsuranceEvent, insurance_id)
     if event is None or event.table_id != table_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Insurance event not found",
-        )
+        raise NotFoundError("Insurance event not found")
 
     # 2. Must be confirmed
     if event.insured_amount == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Insurance not yet confirmed",
-        )
+        raise ValidationError("Insurance not yet confirmed")
 
     # 3. Must not be already resolved
     if event.is_hit is not None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Insurance already resolved",
-        )
+        raise ValidationError("Insurance already resolved")
 
     # 4. Validate final_community_cards prefix matches original
     original = event.community_cards
     final = data.final_community_cards
     if final[: len(original)] != original:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Final community cards must start with the original community cards",
+        raise ValidationError(
+            "Final community cards must start with the original community cards"
         )
 
     # 5. Update is_hit

@@ -1,11 +1,11 @@
 import uuid
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.service import hash_password
+from app.exceptions import ConflictError, NotFoundError
 from app.users.models import User
 from app.users.schemas import UserCreate, UserUpdate
 
@@ -25,10 +25,7 @@ async def create_user(db: AsyncSession, data: UserCreate) -> User:
         await db.refresh(user)
     except IntegrityError:
         await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Username '{data.username}' already exists",
-        )
+        raise ConflictError(f"Username '{data.username}' already exists")
     return user
 
 
@@ -51,10 +48,7 @@ async def reset_user_password(
 ) -> None:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
+        raise NotFoundError("User not found")
     user.password_hash = hash_password(new_password)
     await db.commit()
 
@@ -62,10 +56,7 @@ async def reset_user_password(
 async def update_user(db: AsyncSession, user_id: uuid.UUID, data: UserUpdate) -> User:
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
+        raise NotFoundError("User not found")
 
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():

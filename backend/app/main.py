@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select
@@ -9,6 +10,14 @@ from sqlalchemy import select
 from app.auth.service import hash_password
 from app.config import settings
 from app.database import async_session_factory
+from app.exceptions import (
+    AuthenticationError,
+    ConflictError,
+    ForbiddenError,
+    NotFoundError,
+    PokerBankerError,
+    ValidationError,
+)
 from app.limiter import limiter
 from app.users.models import User
 
@@ -45,6 +54,25 @@ app = FastAPI(title="Poker Banker API", lifespan=lifespan)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+# ---------------------------------------------------------------------------
+# Domain exception handlers — translate service-layer errors to HTTP responses
+# ---------------------------------------------------------------------------
+
+_EXCEPTION_STATUS_MAP = {
+    NotFoundError: 404,
+    ForbiddenError: 403,
+    ConflictError: 409,
+    ValidationError: 400,
+    AuthenticationError: 401,
+}
+
+
+@app.exception_handler(PokerBankerError)
+async def poker_banker_error_handler(request: Request, exc: PokerBankerError) -> JSONResponse:
+    status_code = _EXCEPTION_STATUS_MAP.get(type(exc), 400)
+    return JSONResponse(status_code=status_code, content={"detail": str(exc)})
 
 app.add_middleware(
     CORSMiddleware,

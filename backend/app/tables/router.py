@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import require_role
 from app.database import get_session
 from app.tables import service
+from app.tables.dependencies import get_owned_table
+from app.tables.models import Table
 from app.tables.schemas import (
     TableCreate,
     TableDetailResponse,
@@ -107,82 +109,42 @@ from app.transactions.schemas import (
 
 @router.post("/{table_id}/buy-in", response_model=BuyInResponse, status_code=status.HTTP_201_CREATED)
 async def buy_in(
-    table_id: uuid.UUID,
     body: BuyInRequest,
     current_user: Annotated[User, Depends(require_role("admin", "banker"))],
     db: Annotated[AsyncSession, Depends(get_session)],
+    table: Annotated[Table, Depends(get_owned_table)],
 ):
-    table = await service.get_table(db, table_id)
-    if table is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Table not found"
-        )
-    if current_user.role != "admin" and table.banker_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't own this table",
-        )
-    return await txn_service.buy_in(db, table_id, body.player_id, body.amount, current_user.id)
+    return await txn_service.buy_in(db, table.id, body.player_id, body.amount, current_user.id)
 
 
 @router.post("/{table_id}/cash-out", response_model=CashOutResponse)
 async def cash_out(
-    table_id: uuid.UUID,
     body: CashOutRequest,
     current_user: Annotated[User, Depends(require_role("admin", "banker"))],
     db: Annotated[AsyncSession, Depends(get_session)],
+    table: Annotated[Table, Depends(get_owned_table)],
 ):
-    table = await service.get_table(db, table_id)
-    if table is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Table not found"
-        )
-    if current_user.role != "admin" and table.banker_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't own this table",
-        )
-    return await txn_service.cash_out(db, table_id, body.player_id, body.chip_count, current_user.id)
+    return await txn_service.cash_out(db, table.id, body.player_id, body.chip_count, current_user.id)
 
 
 @router.get("/{table_id}/players", response_model=TablePlayersResponse)
 async def get_table_players(
-    table_id: uuid.UUID,
     current_user: Annotated[User, Depends(require_role("admin", "banker"))],
     db: Annotated[AsyncSession, Depends(get_session)],
+    table: Annotated[Table, Depends(get_owned_table)],
 ):
-    table = await service.get_table(db, table_id)
-    if table is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Table not found"
-        )
-    if current_user.role != "admin" and table.banker_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't own this table",
-        )
-    players = await txn_service.get_table_players(db, table_id)
-    return TablePlayersResponse(table_id=table_id, players=players)
+    players = await txn_service.get_table_players(db, table.id)
+    return TablePlayersResponse(table_id=table.id, players=players)
 
 
 @router.get("/{table_id}/transactions", response_model=TransactionListResponse)
 async def get_table_transactions(
-    table_id: uuid.UUID,
     current_user: Annotated[User, Depends(require_role("admin", "banker"))],
     db: Annotated[AsyncSession, Depends(get_session)],
+    table: Annotated[Table, Depends(get_owned_table)],
     player_id: uuid.UUID | None = Query(None),
 ):
-    table = await service.get_table(db, table_id)
-    if table is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Table not found"
-        )
-    if current_user.role != "admin" and table.banker_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't own this table",
-        )
-    txns = await txn_service.get_table_transactions(db, table_id, player_id)
+    txns = await txn_service.get_table_transactions(db, table.id, player_id)
     return TransactionListResponse(transactions=txns, total=len(txns))
 
 

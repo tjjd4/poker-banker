@@ -1,10 +1,10 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import NotFoundError, ValidationError
 from app.tables.models import PlayerSeat, Table
 from app.transactions.models import Transaction
 from app.transactions.rake import calculate_rake
@@ -33,21 +33,14 @@ async def buy_in(
     # 1. Table must be OPEN (FOR UPDATE lock serializes concurrent requests)
     table = await _lock_table(db, table_id)
     if table is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Table not found"
-        )
+        raise NotFoundError("Table not found")
     if table.status != "OPEN":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Table is not open for buy-in",
-        )
+        raise ValidationError("Table is not open for buy-in")
 
     # 2. Player must exist and be active
     player = await db.get(User, player_id)
     if player is None or not player.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Player not found"
-        )
+        raise NotFoundError("Player not found")
 
     # 3. Get or create PlayerSeat
     result = await db.execute(
@@ -128,14 +121,9 @@ async def cash_out(
     # 1. Table must be OPEN or SETTLING (FOR UPDATE lock serializes concurrent requests)
     table = await _lock_table(db, table_id)
     if table is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Table not found"
-        )
+        raise NotFoundError("Table not found")
     if table.status not in ("OPEN", "SETTLING"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Table is not open for cash-out",
-        )
+        raise ValidationError("Table is not open for cash-out")
 
     # 2. Player must be actively seated
     result = await db.execute(
@@ -146,10 +134,7 @@ async def cash_out(
     )
     seat = result.scalar_one_or_none()
     if seat is None or not seat.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Player is not seated at this table",
-        )
+        raise ValidationError("Player is not seated at this table")
 
     # 3. Total buy-in
     buy_in_result = await db.execute(
@@ -277,17 +262,62 @@ async def get_player_status(
 async def get_table_players(
     db: AsyncSession, table_id: uuid.UUID
 ) -> list[dict]:
-    result = await db.execute(
-        select(PlayerSeat.player_id).where(PlayerSeat.table_id == table_id)
-    )
-    player_ids = [row[0] for row in result.all()]
+    """Return player status for all seats at a table using a single aggregated query.
 
-    players = []
-    for pid in player_ids:
-        ps = await get_player_status(db, table_id, pid)
-        if ps is not None:
-            players.append(ps)
-    return players
+    Replaces the previous N+1 pattern (one get_player_status call per player,
+    each doing 3 queries) with a single SQL statement using correlated subqueries.
+    """
+    # Correlated subquery: sum of BUY_IN amounts per player at this table
+    buy_in_subq = (
+        select(func.coalesce(func.sum(Transaction.amount), 0))
+        .where(
+            Transaction.table_id == table_id,
+            Transaction.player_id == PlayerSeat.player_id,
+            Transaction.type == "BUY_IN",
+        )
+        .correlate(PlayerSeat)
+        .scalar_subquery()
+    )
+
+    # Correlated subquery: sum of ALL transaction amounts per player at this table
+    balance_subq = (
+        select(func.coalesce(func.sum(Transaction.amount), 0))
+        .where(
+            Transaction.table_id == table_id,
+            Transaction.player_id == PlayerSeat.player_id,
+        )
+        .correlate(PlayerSeat)
+        .scalar_subquery()
+    )
+
+    stmt = (
+        select(
+            PlayerSeat.player_id,
+            User.display_name,
+            PlayerSeat.is_active,
+            PlayerSeat.seated_at,
+            PlayerSeat.left_at,
+            buy_in_subq.label("total_buy_in"),
+            balance_subq.label("current_balance"),
+        )
+        .join(User, PlayerSeat.player_id == User.id)
+        .where(PlayerSeat.table_id == table_id)
+        .order_by(PlayerSeat.seated_at)
+    )
+
+    result = await db.execute(stmt)
+    return [
+        {
+            "player_id": row.player_id,
+            "display_name": row.display_name,
+            "total_buy_in": row.total_buy_in,
+            "current_balance": row.current_balance,
+            "is_seated": row.is_active,
+            "seated_at": row.seated_at,
+            "left_at": row.left_at,
+        }
+        for row in result.all()
+    ]
 
 
 async def get_table_transactions(

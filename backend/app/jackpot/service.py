@@ -1,9 +1,9 @@
 import uuid
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import NotFoundError, ValidationError
 from app.jackpot.models import JackpotPool, JackpotTrigger
 from app.jackpot.schemas import JackpotPoolCreate, JackpotTriggerRequest
 from app.tables.models import PlayerSeat, Table
@@ -49,28 +49,17 @@ async def record_hand(
     # 1. Lock table + verify OPEN
     table = await _lock_table(db, table_id)
     if table is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Table not found"
-        )
+        raise NotFoundError("Table not found")
     if table.status != "OPEN":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Table is not open",
-        )
+        raise ValidationError("Table is not open")
 
     # 2. Jackpot must be enabled
     if table.jackpot_per_hand <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Jackpot is not enabled for this table",
-        )
+        raise ValidationError("Jackpot is not enabled for this table")
 
     # 3. Must have linked pool
     if table.jackpot_pool_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Table has no jackpot pool linked",
-        )
+        raise ValidationError("Table has no jackpot pool linked")
 
     # 4. Get active players
     result = await db.execute(
@@ -83,10 +72,7 @@ async def record_hand(
     player_count = len(seats)
 
     if player_count == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No active players at the table",
-        )
+        raise ValidationError("No active players at the table")
 
     # 5. Calculate split
     per_player = table.jackpot_per_hand // player_count
@@ -154,27 +140,16 @@ async def trigger_payout(
     # 1. Lock table + verify OPEN
     table = await _lock_table(db, table_id)
     if table is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Table not found"
-        )
+        raise NotFoundError("Table not found")
     if table.status != "OPEN":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Table is not open",
-        )
+        raise ValidationError("Table is not open")
 
     # 2. Get pool + check balance
     pool = await db.get(JackpotPool, data.pool_id)
     if pool is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Jackpot pool not found",
-        )
+        raise NotFoundError("Jackpot pool not found")
     if pool.balance < data.payout_amount:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Insufficient jackpot pool balance",
-        )
+        raise ValidationError("Insufficient jackpot pool balance")
 
     # 3. Winner must be seated
     seat_result = await db.execute(
@@ -185,10 +160,7 @@ async def trigger_payout(
         )
     )
     if seat_result.scalar_one_or_none() is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Winner is not seated at this table",
-        )
+        raise ValidationError("Winner is not seated at this table")
 
     # 4. Create JACKPOT_PAYOUT transaction
     sum_result = await db.execute(

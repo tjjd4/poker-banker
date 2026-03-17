@@ -3,11 +3,11 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
-from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.exceptions import AuthenticationError, ValidationError
 from app.users.models import User
 
 
@@ -48,6 +48,11 @@ def create_refresh_token(user_id: uuid.UUID) -> str:
 
 
 def decode_token(token: str) -> dict:
+    # NOTE: decode_token is called from auth/dependencies.py which feeds into
+    # the FastAPI OAuth2PasswordBearer dependency chain. That chain requires
+    # HTTPException for 401 responses, so we keep HTTPException here.
+    from fastapi import HTTPException, status
+
     try:
         return jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
@@ -69,10 +74,7 @@ async def change_password(
     new_password: str,
 ) -> None:
     if not verify_password(current_password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Current password is incorrect",
-        )
+        raise ValidationError("Current password is incorrect")
     user.password_hash = hash_password(new_password)
     await db.commit()
 
@@ -84,18 +86,9 @@ async def authenticate_user(
     user = result.scalar_one_or_none()
 
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-        )
+        raise AuthenticationError("Invalid credentials")
     if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User account is inactive",
-        )
+        raise AuthenticationError("User account is inactive")
     if not verify_password(password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-        )
+        raise AuthenticationError("Invalid credentials")
     return user
