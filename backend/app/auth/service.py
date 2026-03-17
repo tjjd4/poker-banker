@@ -62,6 +62,21 @@ def decode_token(token: str) -> dict:
         )
 
 
+async def change_password(
+    db: AsyncSession,
+    user: User,
+    current_password: str,
+    new_password: str,
+) -> None:
+    if not verify_password(current_password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+    user.password_hash = hash_password(new_password)
+    await db.commit()
+
+
 async def authenticate_user(
     db: AsyncSession, username: str, password: str
 ) -> User:

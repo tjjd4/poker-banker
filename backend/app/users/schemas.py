@@ -32,3 +32,7 @@ class UserResponse(BaseModel):
 class UserListResponse(BaseModel):
     users: list[UserResponse]
     total: int
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str = Field(..., min_length=8)

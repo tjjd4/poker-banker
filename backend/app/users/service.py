@@ -46,6 +46,19 @@ async def list_users(db: AsyncSession) -> list[User]:
     return list(result.scalars().all())
 
 
+async def reset_user_password(
+    db: AsyncSession, user_id: uuid.UUID, new_password: str
+) -> None:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    user.password_hash = hash_password(new_password)
+    await db.commit()
+
+
 async def update_user(db: AsyncSession, user_id: uuid.UUID, data: UserUpdate) -> User:
     user = await get_user_by_id(db, user_id)
     if user is None:

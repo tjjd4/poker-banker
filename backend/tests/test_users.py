@@ -121,3 +121,100 @@ async def test_access_without_token(async_client: AsyncClient):
     """不帶 token 打需認證端點 -> 401"""
     response = await async_client.get("/api/users")
     assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# 1.5 — Admin Password Reset
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_admin_reset_password_success(
+    async_client: AsyncClient, admin_headers: dict
+):
+    """Admin resets another user's password -> 200"""
+    create_resp = await async_client.post(
+        "/api/users",
+        json={
+            "username": "resetme",
+            "password": "oldpassword1",
+            "display_name": "Reset Me",
+            "role": "banker",
+        },
+        headers=admin_headers,
+    )
+    assert create_resp.status_code == 201
+    user_id = create_resp.json()["id"]
+
+    response = await async_client.post(
+        f"/api/users/{user_id}/reset-password",
+        json={"new_password": "newpassword1"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_admin_reset_password_not_found(
+    async_client: AsyncClient, admin_headers: dict
+):
+    """Reset password for non-existent user -> 404"""
+    fake_id = str(uuid.uuid4())
+    response = await async_client.post(
+        f"/api/users/{fake_id}/reset-password",
+        json={"new_password": "newpassword1"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_reset_password_too_short(
+    async_client: AsyncClient, admin_headers: dict
+):
+    """new_password < 8 chars -> 422"""
+    create_resp = await async_client.post(
+        "/api/users",
+        json={
+            "username": "resetme2",
+            "password": "oldpassword1",
+            "display_name": "Reset Me 2",
+            "role": "banker",
+        },
+        headers=admin_headers,
+    )
+    assert create_resp.status_code == 201
+    user_id = create_resp.json()["id"]
+
+    response = await async_client.post(
+        f"/api/users/{user_id}/reset-password",
+        json={"new_password": "short"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_banker_cannot_reset_password(
+    async_client: AsyncClient, admin_headers: dict, banker_headers: dict
+):
+    """Banker cannot reset password (admin only) -> 403"""
+    create_resp = await async_client.post(
+        "/api/users",
+        json={
+            "username": "resetme3",
+            "password": "oldpassword1",
+            "display_name": "Reset Me 3",
+            "role": "banker",
+        },
+        headers=admin_headers,
+    )
+    assert create_resp.status_code == 201
+    user_id = create_resp.json()["id"]
+
+    response = await async_client.post(
+        f"/api/users/{user_id}/reset-password",
+        json={"new_password": "newpassword1"},
+        headers=banker_headers,
+    )
+    assert response.status_code == 403

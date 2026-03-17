@@ -8,7 +8,7 @@ from app.auth.dependencies import require_role
 from app.database import get_session
 from app.users import service
 from app.users.models import User
-from app.users.schemas import UserCreate, UserListResponse, UserResponse, UserUpdate
+from app.users.schemas import ResetPasswordRequest, UserCreate, UserListResponse, UserResponse, UserUpdate
 
 router = APIRouter()
 
@@ -39,3 +39,14 @@ async def update_user(
     db: Annotated[AsyncSession, Depends(get_session)],
 ):
     return await service.update_user(db, user_id, body)
+
+
+@router.post("/{user_id}/reset-password", status_code=status.HTTP_200_OK)
+async def reset_password(
+    user_id: uuid.UUID,
+    body: ResetPasswordRequest,
+    _current_user: Annotated[User, Depends(require_role("admin"))],
+    db: Annotated[AsyncSession, Depends(get_session)],
+):
+    await service.reset_user_password(db, user_id, body.new_password)
+    return {"message": "Password reset successfully"}

@@ -1,11 +1,15 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select
 
 from app.auth.service import hash_password
 from app.config import settings
 from app.database import async_session_factory
+from app.limiter import limiter
 from app.users.models import User
 
 from app.auth.router import router as auth_router
@@ -38,6 +42,17 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Poker Banker API", lifespan=lifespan)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
