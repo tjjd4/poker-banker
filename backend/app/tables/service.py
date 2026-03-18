@@ -68,15 +68,22 @@ async def list_tables(
     db: AsyncSession,
     banker_id: uuid.UUID | None,
     status_filter: str | None = None,
-) -> list[Table]:
-    stmt = select(Table)
+    offset: int = 0,
+    limit: int = 50,
+) -> dict:
+    base_stmt = select(Table)
     if banker_id is not None:
-        stmt = stmt.where(Table.banker_id == banker_id)
+        base_stmt = base_stmt.where(Table.banker_id == banker_id)
     if status_filter is not None:
-        stmt = stmt.where(Table.status == status_filter)
-    stmt = stmt.order_by(Table.created_at.desc())
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
+        base_stmt = base_stmt.where(Table.status == status_filter)
+
+    count_stmt = select(func.count()).select_from(base_stmt.subquery())
+    total = (await db.execute(count_stmt)).scalar()
+
+    data_stmt = base_stmt.order_by(Table.created_at.desc()).offset(offset).limit(limit)
+    items = list((await db.execute(data_stmt)).scalars().all())
+
+    return {"items": items, "total": total, "offset": offset, "limit": limit}
 
 
 async def get_table(db: AsyncSession, table_id: uuid.UUID) -> Table | None:

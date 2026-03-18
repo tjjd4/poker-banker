@@ -28,13 +28,19 @@ async def create_pool(
 
 
 async def list_pools(
-    db: AsyncSession, current_user: User
-) -> list[JackpotPool]:
-    stmt = select(JackpotPool)
+    db: AsyncSession, current_user: User, offset: int = 0, limit: int = 50
+) -> dict:
+    base_stmt = select(JackpotPool)
     if current_user.role != "admin":
-        stmt = stmt.where(JackpotPool.banker_id == current_user.id)
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
+        base_stmt = base_stmt.where(JackpotPool.banker_id == current_user.id)
+
+    count_stmt = select(func.count()).select_from(base_stmt.subquery())
+    total = (await db.execute(count_stmt)).scalar()
+
+    data_stmt = base_stmt.offset(offset).limit(limit)
+    items = list((await db.execute(data_stmt)).scalars().all())
+
+    return {"items": items, "total": total, "offset": offset, "limit": limit}
 
 
 async def get_pool(

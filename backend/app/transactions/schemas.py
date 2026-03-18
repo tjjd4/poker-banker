@@ -62,3 +62,5 @@ class TablePlayersResponse(BaseModel):
 class TransactionListResponse(BaseModel):
     transactions: list[TransactionResponse]
     total: int
+    offset: int = 0
+    limit: int = 50

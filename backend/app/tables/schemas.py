@@ -66,3 +66,5 @@ class TableDetailResponse(TableResponse):
 class TableListResponse(BaseModel):
     tables: list[TableResponse]
     total: int
+    offset: int = 0
+    limit: int = 50

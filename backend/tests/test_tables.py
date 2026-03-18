@@ -454,3 +454,46 @@ async def test_banker_cannot_change_other_bankers_table_status(
         headers=banker_b_headers,
     )
     assert resp.status_code == 403
+
+
+# ===== Status query param validation =====
+
+
+@pytest.mark.asyncio
+async def test_list_tables_invalid_status_filter_returns_422(
+    async_client: AsyncClient,
+    admin_headers: dict,
+):
+    """GET /api/tables?status=invalid_value should return 422, not 200 with empty list."""
+    resp = await async_client.get("/api/tables?status=invalid_value", headers=admin_headers)
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_list_tables_valid_status_filter_returns_200(
+    async_client: AsyncClient,
+    admin_headers: dict,
+):
+    """GET /api/tables?status=OPEN should return 200 with a filtered list."""
+    resp = await async_client.get("/api/tables?status=OPEN", headers=admin_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "tables" in data
+    # All returned tables must have status OPEN
+    for table in data["tables"]:
+        assert table["status"] == "OPEN"
+
+
+@pytest.mark.asyncio
+async def test_list_tables_valid_status_created_returns_200(
+    async_client: AsyncClient,
+    admin_headers: dict,
+    created_table: dict,
+):
+    """GET /api/tables?status=CREATED should include the newly created table."""
+    resp = await async_client.get("/api/tables?status=CREATED", headers=admin_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "tables" in data
+    ids = [t["id"] for t in data["tables"]]
+    assert created_table["id"] in ids

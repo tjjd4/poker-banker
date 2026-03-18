@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import require_role
 from app.database import get_session
 from app.jackpot import service
+from app.schemas import PaginationParams
 from app.jackpot.schemas import (
     JackpotPoolCreate,
     JackpotPoolListResponse,
@@ -44,9 +45,15 @@ async def create_pool(
 async def list_pools(
     current_user: Annotated[User, Depends(require_role("admin", "banker"))],
     db: Annotated[AsyncSession, Depends(get_session)],
+    pagination: Annotated[PaginationParams, Depends()],
 ):
-    pools = await service.list_pools(db, current_user)
-    return JackpotPoolListResponse(pools=pools, total=len(pools))
+    result = await service.list_pools(db, current_user, pagination.offset, pagination.limit)
+    return JackpotPoolListResponse(
+        pools=result["items"],
+        total=result["total"],
+        offset=result["offset"],
+        limit=result["limit"],
+    )
 
 
 @router.get("/{pool_id}", response_model=JackpotPoolResponse)

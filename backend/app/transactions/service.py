@@ -324,10 +324,17 @@ async def get_table_transactions(
     db: AsyncSession,
     table_id: uuid.UUID,
     player_id: uuid.UUID | None = None,
-) -> list[Transaction]:
-    stmt = select(Transaction).where(Transaction.table_id == table_id)
+    offset: int = 0,
+    limit: int = 50,
+) -> dict:
+    base_stmt = select(Transaction).where(Transaction.table_id == table_id)
     if player_id is not None:
-        stmt = stmt.where(Transaction.player_id == player_id)
-    stmt = stmt.order_by(Transaction.created_at)
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
+        base_stmt = base_stmt.where(Transaction.player_id == player_id)
+
+    count_stmt = select(func.count()).select_from(base_stmt.subquery())
+    total = (await db.execute(count_stmt)).scalar()
+
+    data_stmt = base_stmt.order_by(Transaction.created_at).offset(offset).limit(limit)
+    items = list((await db.execute(data_stmt)).scalars().all())
+
+    return {"items": items, "total": total, "offset": offset, "limit": limit}

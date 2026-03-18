@@ -32,6 +32,8 @@ class UserResponse(BaseModel):
 class UserListResponse(BaseModel):
     users: list[UserResponse]
     total: int
+    offset: int = 0
+    limit: int = 50
 
 
 class ResetPasswordRequest(BaseModel):

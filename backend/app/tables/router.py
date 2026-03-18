@@ -1,12 +1,13 @@
 import logging
 import uuid
-from typing import Annotated
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_role
 from app.database import get_session
+from app.schemas import PaginationParams
 from app.tables import service
 from app.tables.dependencies import get_owned_table
 from app.tables.models import Table
@@ -38,11 +39,17 @@ async def create_table(
 async def list_tables(
     current_user: Annotated[User, Depends(require_role("admin", "banker"))],
     db: Annotated[AsyncSession, Depends(get_session)],
-    status_filter: str | None = Query(None, alias="status"),
+    pagination: Annotated[PaginationParams, Depends()],
+    status_filter: Optional[Literal["CREATED", "OPEN", "SETTLING", "CLOSED"]] = Query(None, alias="status"),
 ):
     banker_id = None if current_user.role == "admin" else current_user.id
-    tables = await service.list_tables(db, banker_id, status_filter)
-    return TableListResponse(tables=tables, total=len(tables))
+    result = await service.list_tables(db, banker_id, status_filter, pagination.offset, pagination.limit)
+    return TableListResponse(
+        tables=result["items"],
+        total=result["total"],
+        offset=result["offset"],
+        limit=result["limit"],
+    )
 
 
 @router.get("/{table_id}", response_model=TableDetailResponse)
@@ -142,10 +149,18 @@ async def get_table_transactions(
     current_user: Annotated[User, Depends(require_role("admin", "banker"))],
     db: Annotated[AsyncSession, Depends(get_session)],
     table: Annotated[Table, Depends(get_owned_table)],
+    pagination: Annotated[PaginationParams, Depends()],
     player_id: uuid.UUID | None = Query(None),
 ):
-    txns = await txn_service.get_table_transactions(db, table.id, player_id)
-    return TransactionListResponse(transactions=txns, total=len(txns))
+    result = await txn_service.get_table_transactions(
+        db, table.id, player_id, pagination.offset, pagination.limit
+    )
+    return TransactionListResponse(
+        transactions=result["items"],
+        total=result["total"],
+        offset=result["offset"],
+        limit=result["limit"],
+    )
 
 
 # ---------------------------------------------------------------------------

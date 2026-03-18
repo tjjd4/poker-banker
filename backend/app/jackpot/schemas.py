@@ -35,6 +35,8 @@ class JackpotPoolResponse(BaseModel):
 class JackpotPoolListResponse(BaseModel):
     pools: list[JackpotPoolResponse]
     total: int
+    offset: int = 0
+    limit: int = 50
 
 
 class HandContribution(BaseModel):

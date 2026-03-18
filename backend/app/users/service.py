@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,9 +38,16 @@ async def get_user_by_username(db: AsyncSession, username: str) -> User | None:
     return result.scalar_one_or_none()
 
 
-async def list_users(db: AsyncSession) -> list[User]:
-    result = await db.execute(select(User).order_by(User.created_at))
-    return list(result.scalars().all())
+async def list_users(
+    db: AsyncSession, offset: int = 0, limit: int = 50
+) -> dict:
+    count_stmt = select(func.count()).select_from(User)
+    total = (await db.execute(count_stmt)).scalar()
+
+    data_stmt = select(User).order_by(User.created_at).offset(offset).limit(limit)
+    items = list((await db.execute(data_stmt)).scalars().all())
+
+    return {"items": items, "total": total, "offset": offset, "limit": limit}
 
 
 async def reset_user_password(

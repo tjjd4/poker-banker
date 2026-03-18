@@ -218,3 +218,94 @@ async def test_banker_cannot_reset_password(
         headers=banker_headers,
     )
     assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — GET /api/users/{user_id}
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_user_by_id_as_admin(async_client: AsyncClient, admin_headers: dict):
+    """Admin fetches an existing user by ID -> 200 + UserResponse shape"""
+    create_resp = await async_client.post(
+        "/api/users",
+        json={
+            "username": "fetchme",
+            "password": "secure123",
+            "display_name": "Fetch Me",
+            "role": "banker",
+        },
+        headers=admin_headers,
+    )
+    assert create_resp.status_code == 201
+    user_id = create_resp.json()["id"]
+
+    response = await async_client.get(f"/api/users/{user_id}", headers=admin_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == user_id
+    assert data["username"] == "fetchme"
+    assert data["display_name"] == "Fetch Me"
+    assert data["role"] == "banker"
+    assert data["is_active"] is True
+    assert "created_at" in data
+    assert "password_hash" not in data
+
+
+@pytest.mark.asyncio
+async def test_get_user_by_id_not_found(async_client: AsyncClient, admin_headers: dict):
+    """Admin fetches a random UUID that does not exist -> 404 with domain error format"""
+    fake_id = str(uuid.uuid4())
+    response = await async_client.get(f"/api/users/{fake_id}", headers=admin_headers)
+    assert response.status_code == 404
+    # Verify the response body uses the domain exception format ({"detail": "..."})
+    # consistent with every other 404 in the codebase raised via NotFoundError
+    body = response.json()
+    assert "detail" in body
+    assert isinstance(body["detail"], str)
+    assert len(body["detail"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_get_user_by_id_as_banker_forbidden(
+    async_client: AsyncClient, admin_headers: dict, banker_headers: dict
+):
+    """Banker attempts to fetch a user by ID -> 403"""
+    create_resp = await async_client.post(
+        "/api/users",
+        json={
+            "username": "forbiddenuser",
+            "password": "secure123",
+            "display_name": "Forbidden User",
+            "role": "player",
+        },
+        headers=admin_headers,
+    )
+    assert create_resp.status_code == 201
+    user_id = create_resp.json()["id"]
+
+    response = await async_client.get(f"/api/users/{user_id}", headers=banker_headers)
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_get_user_by_id_as_player_forbidden(
+    async_client: AsyncClient, admin_headers: dict, player_headers: dict
+):
+    """Player attempts to fetch a user by ID -> 403"""
+    create_resp = await async_client.post(
+        "/api/users",
+        json={
+            "username": "anothertarget",
+            "password": "secure123",
+            "display_name": "Another Target",
+            "role": "player",
+        },
+        headers=admin_headers,
+    )
+    assert create_resp.status_code == 201
+    user_id = create_resp.json()["id"]
+
+    response = await async_client.get(f"/api/users/{user_id}", headers=player_headers)
+    assert response.status_code == 403
